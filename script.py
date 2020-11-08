@@ -1,32 +1,48 @@
+import os
 import time
 import logging
 import threading
-import random
+from random import randint
+from colorama import init, Fore
 
 # ------------------------------------------------------------------------------------------------ #
 
+init(os.name == 'nt')
 logging.basicConfig(format='%(asctime)s.%(msecs)03d [%(threadName)s] - %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
-monitor = threading.Condition()
-heladeras = []
-ctdHeladeras = 3
-localAbierto = True
+
+colors = {
+    'repositor': Fore.GREEN,    # color de Repositor
+    'proveedor': Fore.YELLOW,   # color de Provedor
+    'bebedor': Fore.MAGENTA,    # color de Bebedores
+    'reset': Fore.WHITE         # vuelve a poner el color en blanco
+}
+cantidad = {
+    'heladeras': 3
+}
 frecuencia = {
     'repositor': 2, # frecuencia de entrega de paquetes de cerveza [Segundos]
     'proveedor': 3, # frecuencia de control de heladeras [Segundos]
-    'bebedor': 1,    # frecuencia de consumo de cerveza de los clientes [Segundos]
-    'local': 20 # Tiempo que el local esta abierto [Segundos]
+    'local': 30     # Tiempo que el local esta abierto [Segundos], Si es muy corto los threads no terminan de cumplir sus tareas
+}
+monitor = {
+    'repositor': threading.Condition()
 }
 
 # ------------------------------------------------------------------------------------------------ #
 
 class Cerveza:
-    def __init__(self, tipo='cerveza', pinchada=False):
+    def __init__(self, tipo='cerveza'):
         self.tipo = tipo
-        self.pinchada = pinchada
 
 class PackDeCervezas:
     def __init__(self):
         self.cervezas= []
+
+    def set(self, listaDeCervezas):
+        self.cervezas = listaDeCervezas
+
+    def get(self):
+        return self.cervezas
     
     def getTipos(self):
         return list(map(lambda cerveza: cerveza.tipo ,self.cervezas))
@@ -63,15 +79,7 @@ class Deposito:
             self.cervezas.append( cerveza )
 
     def sacar(self, unTipoDeCerveza):
-        global monitor
-        with monitor:
-            while not(self.cervezas.contains(unTipoDeCerveza)) and (localAbierto):
-                self.sinStock(unTipoDeCerveza)
-                monitor.wait()
-        return self.cervezas.remove( unTipoDeCerveza )
-
-    def sinStock(self, unTipoDeCerveza):
-        logging.info(f'REPOSITOR > Sin stock de {unTipoDeCerveza}s para reponer, esperando proveedor...')
+        return self.cervezas.remove( unTipoDeCerveza ) if (self.cervezas.contains(unTipoDeCerveza)) else False
 
 # ------------------------------------------------------------------------------------------------ #
 
@@ -87,9 +95,6 @@ class Heladera(Deposito):
         if( self.hayEspacioPara(unaCerveza.tipo) ):
             self.cervezas.append( unaCerveza )
 
-    def sinStock(self, unTipoDeCerveza):
-        logging.info(f'Heladera [{self.id}] sin {unTipoDeCerveza}s, esperando repositor...')
-
     def hayEspacioPara(self, unTipoDeCerveza):
         return self.cervezas.count(unTipoDeCerveza) < self.capacidad[unTipoDeCerveza]
 
@@ -102,61 +107,63 @@ class Heladera(Deposito):
 # ------------------------------------------------------------------------------------------------ #
 
 class Proveedor(threading.Thread):
-    def __init__(self, unDeposito):
+    def __init__(self):
         super().__init__()
         self.packDeCervezas = PackDeCervezas()
-        self.depositoCliente = unDeposito
 
     def run(self):
         global localAbierto, frecuencia
         while localAbierto:
             self.producirCervezas()
-            self.entregarA(self.depositoCliente)
+            self.entregar()
             time.sleep( frecuencia['proveedor'] )
 
-    def entregarA(self, unDeposito):
-        global monitor
-        with monitor:
-            unDeposito.colocar(self.packDeCervezas)
-            monitor.notify()
-        logging.info(f'PROVEEDOR > Entregue un paquete de {self.packDeCervezas.size()} cervezas')
+    def entregar(self):
+        global monitor, deposito
+        with monitor['repositor']:
+            deposito.colocar(self.packDeCervezas)
+            monitor['repositor'].notify()
+        logging.info(f'{colors["proveedor"]}PROVEEDOR > Entregue un paquete de {self.packDeCervezas.size()} cervezas{colors["reset"]}')
         self.packDeCervezas.clear()
 
     def producirCervezas(self):
-        for x in range( random.randint(1, 25) ):
-            nuevaCerveza = Cerveza(
-                tipo = ('lata' if (random.randint(0, 10) % 2 == 0) else 'botella'),
-                pinchada = (True if (random.randint(0, 25) % 5 == 0) else False)
-            )
-            self.packDeCervezas.append(nuevaCerveza)
+        for x in range( randint(1, 25) ):
+            tipo = ('lata' if (randint(0, 10) % 2 == 0) else 'botella')
+            self.packDeCervezas.append(Cerveza(tipo))
 
 # ------------------------------------------------------------------------------------------------ #
 
 class Repositor(threading.Thread):
-    def __init__(self, unDeposito, heladeras):
+    def __init__(self):
         super().__init__()
         self.cervezas = PackDeCervezas()
-        self.deposito = unDeposito
-        self.heladeras = heladeras
 
     def run(self):
-        for heladera in self.heladeras:
+        global heladeras
+        for heladera in heladeras:
             heladera.enchufada = True
             self.llenar(heladera)
             heladera.enfriadoRapido = True
         self.controlarHeladeras()
 
     def controlarHeladeras(self):
-        global localAbierto
+        global localAbierto, heladeras
         while localAbierto:
-            for heladera in self.heladeras:
+            for heladera in heladeras:
                 if not heladera.estaLlena():
                     self.llenar(heladera)
             time.sleep(frecuencia['repositor'])
 
     def traerCervezas(self, unTipoDeCerveza, cantidad):
+        global monitor, deposito
         for x in range(cantidad):
-            self.cervezas.append( self.deposito.sacar(unTipoDeCerveza) )
+            cervezaDelDeposito = deposito.sacar(unTipoDeCerveza)
+            with monitor['repositor']:
+                while not(cervezaDelDeposito) and localAbierto:
+                    logging.info(f'{colors["repositor"]}REPOSITOR > Sin stock de {unTipoDeCerveza}s para reponer, esperando proveedor...{colors["reset"]}')
+                    monitor['repositor'].wait()
+                    cervezaDelDeposito = deposito.sacar(unTipoDeCerveza)
+            self.cervezas.append(cervezaDelDeposito)
 
     def reponer(self, unTipoDeCerveza, unaHeladera):
         while unaHeladera.hayEspacioPara(unTipoDeCerveza):
@@ -168,24 +175,32 @@ class Repositor(threading.Thread):
     def llenar(self, heladera):
         self.reponer('lata', heladera)
         self.reponer('botella', heladera)
-        logging.info(f'REPOSITOR > Heladera[{heladera.id}] llena')
+        logging.info(f'{colors["repositor"]}REPOSITOR > Heladera[{heladera.id}] llena{colors["reset"]}')
 
 # ------------------------------------------------------------------------------------------------ #
 
-for i in range(ctdHeladeras):
-    heladeras.append(Heladera(id=i))
+def crearHeladeras():
+    heladeras = []
+    for i in range(cantidad['heladeras']):
+        heladeras.append(Heladera(id=i))
+    return heladeras
 
 deposito = Deposito()
-proveedor = Proveedor( deposito )
-repositor = Repositor( deposito, heladeras )
+heladeras = crearHeladeras()
+proveedor = Proveedor()
+repositor = Repositor()
 
+
+localAbierto = True
 logging.info(f'LOCAL ABIERTO !')
+
 proveedor.start()
 repositor.start()
-
 time.sleep( frecuencia['local'])
+
 localAbierto = False
 logging.info(f'LOCAL CERRADO !')
 
-with monitor:
-    monitor.notify()
+for key in monitor.keys():
+    with  monitor[key]:
+        monitor[key].notify()

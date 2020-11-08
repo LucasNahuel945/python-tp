@@ -30,7 +30,6 @@ monitor = {
     'repositor': threading.Condition(),
     'bebedores': threading.Condition()
 }
-semaforoBebedores = threading.Semaphore(cantidad['bebedores'])
 
 # ------------------------------------------------------------------------------------------------ #
 
@@ -146,7 +145,6 @@ class Repositor(threading.Thread):
 
     def run(self):
         global heladeras
-
         for heladera in heladeras:
             heladera.enchufada = True
             self.llenar(heladera)
@@ -279,7 +277,6 @@ time.sleep( frecuencia['local'])
 
 localAbierto = False
 logging.info(f'LOCAL CERRADO !')
-
 
 for key in monitor.keys():
     with  monitor[key]:
