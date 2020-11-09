@@ -30,7 +30,7 @@ monitor = {
     'repositor': threading.Condition(),
     'bebedores': threading.Condition()
 }
-
+semaforo = threading.Semaphore(2)
 # ------------------------------------------------------------------------------------------------ #
 
 class Cerveza:
@@ -117,10 +117,12 @@ class Proveedor(threading.Thread):
 
     def run(self):
         global localAbierto, frecuencia
+        semaforo.acquire()
         while localAbierto:
             self.producirCervezas()
             self.entregar()
             time.sleep( frecuencia['proveedor'] )
+        semaforo.release()
 
     def entregar(self):
         global monitor, deposito
@@ -156,11 +158,15 @@ class Repositor(threading.Thread):
         while localAbierto:
             with monitor['bebedores']:
                 monitor['bebedores'].notify()
+            self.quitarPinchadas()
+            ordenarHeladeras(heladeras)
+            semaforo.acquire()
             for heladera in heladeras:
-                self.quitarPinchadas(heladera)
                 if not heladera.estaLlena():
                     self.llenar(heladera)
+            semaforo.release()
             time.sleep(frecuencia['repositor'])
+
 
     def traerCervezas(self, unTipoDeCerveza, cantidad):
         global monitor, deposito
@@ -185,10 +191,11 @@ class Repositor(threading.Thread):
         self.reponer('lata', heladera)
         logging.info(f'{colors["repositor"]}REPOSITOR > Heladera[{heladera.id}] llena{colors["reset"]}')
     
-    def quitarPinchadas(self, heladera):
-        heladera.cervezas.set(list(filter(lambda cerveza: not(cerveza.pinchada), heladera.cervezas.get())))
-        if heladera.espaciosPara('lata') != 0:
-            logging.info(f'{colors["repositor"]}REPOSITOR > {heladera.espaciosPara("lata")} latas pinchadas sacadas de Heladera[{heladera.id}]{colors["reset"]}')
+    def quitarPinchadas(self):
+        for heladera in heladeras:
+            heladera.cervezas.set(list(filter(lambda cerveza: not(cerveza.pinchada), heladera.cervezas.get())))
+            if heladera.espaciosPara('lata') != 0:
+                logging.info(f'{colors["repositor"]}REPOSITOR > {heladera.espaciosPara("lata")} latas pinchadas sacadas de Heladera[{heladera.id}]{colors["reset"]}')
 
 # ------------------------------------------------------------------------------------------------ #
 
@@ -237,7 +244,7 @@ class Bebedor(threading.Thread):
 
     def presentarse(self):
         logging.info(f'{colors["bebedor"]}BEBEDOR[{self.id}] > Hola vengo a tomar {self.cervezasQueToma}s!{colors["reset"]}')
-
+    
 # ------------------------------------------------------------------------------------------------ #
 
 def crearHeladeras():
@@ -245,6 +252,9 @@ def crearHeladeras():
     for i in range(cantidad['heladeras']):
         heladeras.append(Heladera(id=i))
     return heladeras
+
+def ordenarHeladeras(heladeras):
+    heladeras = sorted(heladeras, key=lambda heladera: heladera.espaciosPara('lata') + heladera.espaciosPara('botella') )
 
 def crearBebedores():
     bebedores = []
