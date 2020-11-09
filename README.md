@@ -1,3 +1,11 @@
+Esta solución requiere la instalacion del modulo colorama el cual sirve para utilizar colores en la terminal de una manera más sencilla. 
+
+~~~
+pip install colorama
+~~~
+
+---
+
 # Python TP
 Somos los encargados de organizar una fiesta, y se nos encomendó llenar las heladeras de cerveza.
 
