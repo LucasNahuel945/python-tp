@@ -7,7 +7,7 @@ from colorama import init , Fore
 
 # ------------------------------------------------------------------------------------------------ #
 
-init(os.name == 'nt')
+init(convert=os.name == 'nt')
 logging.basicConfig(format='%(asctime)s.%(msecs)03d [%(threadName)s] - %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 
 colors = {
